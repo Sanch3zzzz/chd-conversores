@@ -26,6 +26,15 @@ sudo pacman -S mame-tools
 
 Para PS2 em CD (raro), use `ps2-iso-para-chd.sh --cd` ou o script de PS1.
 
+## Instalação opcional
+
+Para chamar os scripts de qualquer pasta:
+
+```bash
+mkdir -p ~/.local/bin
+cp ps*-para-chd.sh ~/.local/bin/
+```
+
 ## Uso rápido
 
 ```bash
