@@ -4,3 +4,10 @@
 *.bin
 *.cue
 *.zip
+
+__pycache__/
+*.pyc
+
+pdf-epub/PDF/
+pdf-epub/covers/
+pdf-epub/*.epub
