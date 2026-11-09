@@ -1,0 +1,357 @@
+MANUAL DE CONVERSAO PARA CHD (PS1, PS2 E PSP)
+==============================================
+
+Arquivos deste pacote
+---------------------
+  ./ps1-cd-para-chd.sh    -> PS1 (CD: .cue/.bin ou .iso)
+  ./psp-iso-para-chd.sh   -> PSP (ISO/UMD)
+  ./ps2-iso-para-chd.sh   -> PS2 (ISO de DVD; --cd para CD)
+  ./manual-conversao-chd.txt -> este manual
+
+Ferramenta usada
+----------------
+Todos os scripts usam o chdman, que faz parte do MAME. No Arch Linux:
+
+  sudo pacman -S mame-tools
+
+Conferir a versao:
+
+  chdman --help
+
+O pacote instalado nesta maquina e o mame-tools 0.289. Versoes antigas do
+chdman nao tem o comando createdvd (necessario para PS2/PSP) nem a opcao
+-np (numero de threads).
+
+
+1. O QUE E CHD E POR QUE USAR
+-----------------------------
+CHD significa Compressed Hunks of Data. E um formato de imagem de disco
+que divide o arquivo em blocos ("hunks") e comprime cada bloco
+individualmente. Vantagens:
+
+  - perda zero de dados (compressao sem perda);
+  - um unico arquivo por jogo, em vez de .cue + varios .bin;
+  - leitura direta pelo emulador, sem descompactar tudo antes;
+  - economia de espaco, principalmente em ISOs de DVD;
+  - permite verificar a integridade com SHA1 (chdman verify).
+
+Desvantagem: nem todo emulador/hardware le CHD, e o nivel de compressao
+escolhido pode afetar a compatibilidade e o desempenho.
+
+
+2. CD x DVD: A DIFERENCA QUE MANDA EM TUDO
+------------------------------------------
+O chdman tem dois comandos de criacao de disco:
+
+  createcd  -> imagens de CD-ROM. Setor de 2352/2448 bytes e suporte a
+               varias trilhas (dados + audio). Gera metadado "CD".
+  createdvd -> imagens de DVD-ROM. Setor de 2048 bytes. Uma trilha de
+               dados. Gera metadado "DVD".
+
+Usar o comando errado nao costuma dar erro na hora de criar, mas gera um
+CHD com layout errado. O jogo pode nem abrir ou pode ficar lento.
+
+  PS1            -> CD  -> createcd
+  PS2 (DVD)      -> DVD -> createdvd
+  PS2 (CD raro)  -> CD  -> createcd (opcao --cd no script de PS2)
+  PSP (UMD)      -> DVD -> createdvd
+
+Resumo do que cada script faz por dentro:
+
+  PS1: chdman createcd -i "jogo.cue" -o "jogo.chd.part"
+  PS2: chdman createdvd -c zstd -i "jogo.iso" -o "jogo.chd.part"
+  PSP: chdman createdvd -hs 2048 -c zstd -i "jogo.iso" -o "jogo.chd.part"
+
+Depois da criacao, todos rodam:
+
+  chdman verify -i "jogo.chd.part"
+
+Se a verificacao passar, o arquivo .part e renomeado para .chd. Se
+falhar, o .part e apagado e o original fica intacto.
+
+
+3. PS1: POR QUE .CUE + .BIN E O MELHOR CASO
+-------------------------------------------
+Jogo de PS1 e um CD. Um CD pode ter:
+
+  - uma trilha de dados (o jogo em si);
+  - varias trilhas de audio (musicas, dublagem);
+  - subcanais e setores de tamanhos diferentes.
+
+O .cue e um arquivo de texto que descreve essas trilhas e aponta para os
+arquivos .bin. O chdman le o .cue e junta tudo em um CHD fiel ao disco.
+
+O script aceita:
+
+  .cue  -> recomendado. Usa todos os .bin listados no cue.
+  .iso  -> funciona, mas so tem a trilha de dados. Se o jogo original
+           tinha audio em CD, esse audio ja nao estava no .iso.
+
+O script NAO aceita:
+
+  .ccd / .img / .sub   (CloneCD)
+  .mds / .mdf          (Alcohol 120%)
+  .pbp                 (formato do PSP/PSN)
+  .bin sozinho         (sem .cue nao ha informacao de trilhas)
+
+Se voce tiver apenas .bin sem .cue, nao da para saber trilhas, modos e
+audios com seguranca. O correto e conseguir o .cue original.
+
+Ao rodar com -d (apagar), o script:
+
+  1. verifica o CHD;
+  2. le as linhas FILE "..." do .cue;
+  3. apaga cada .bin referenciado;
+  4. apaga o .cue.
+
+Ele nao apaga .m3u, capas, .sub, .ccd ou outros arquivos ao redor.
+
+Jogos de PS1 com varios discos: converta cada disco separadamente. Cada
+.cue vira um .chd. No DuckStation, troca-se o disco escolhendo o outro
+.chd.
+
+
+4. PS2: DVD NA GRANDE MAIORIA
+-----------------------------
+A maioria absoluta dos jogos de PS2 e DVD. O script usa createdvd e
+procura arquivos .iso (maiusculo ou minusculo).
+
+Existe uma minoria de jogos de PS2 em CD. Eles normalmente vem em
+.bin/.cue e nao em .iso. Duas saidas:
+
+  a) usar o script de PS1, que usa createcd. Ele converte o .cue/.bin
+     corretamente.
+  b) se o jogo de CD estiver em .iso, usar:
+     ./ps2-iso-para-chd.sh --cd jogo.iso
+
+Nao da para decidir CD x DVD apenas pelo tamanho do arquivo: existem
+DVDs pequenos e CDs grandes. Por isso o padrao e DVD e o modo CD e
+explicito com --cd.
+
+Compatibilidade de compressao:
+  - PCSX2 atual le zstd normalmente.
+  - AetherSX2/NetherSX2 antigos podem nao ler createdvd ou zstd. Nesses
+    casos, a solucao mais confiavel e atualizar o emulador. Se nao der,
+    tente -c zlib; mesmo assim o suporte a createdvd pode nao existir na
+    versao antiga.
+
+
+5. PSP: DETALHES DO PPSSPP
+--------------------------
+O PPSSPP passou a ler CHD na versao 1.17. O CHD de PSP deve ser criado
+com createdvd, nunca createcd.
+
+O PPSSPP e sensivel ao tamanho do hunk. O valor recomendado e 2048 bytes
+(um setor de DVD). Por isso o script sempre passa -hs 2048. Versoes do
+chdman a partir do MAME 0.263 mudaram o padrao para 4096, o que piora o
+desempenho no PPSSPP.
+
+O codec zstd passou a ser aceito no PPSSPP 1.17.1. Se voce usa a 1.17.0:
+
+  ./psp-iso-para-chd.sh -c default jogo.iso
+
+O PPSSPP nao esta disponivel para PSP real. Se o objetivo for rodar no
+hardware, o formato e CSO, nao CHD.
+
+
+6. OPCOES DOS SCRIPTS
+---------------------
+  -r, --recursivo      procura os arquivos tambem nas subpastas.
+  -d, --apagar         apaga a origem somente depois de verificar o CHD.
+  -f, --forcar         sobrescreve um .chd que ja exista.
+  -c, --codec CODEC    escolhe a compressao (veja a secao 7).
+  -j, --threads N      limita quantas threads o chdman usa.
+  -h, --ajuda          mostra a ajuda do proprio script.
+
+Variaveis de ambiente equivalentes:
+
+  CHD_CODEC     mesmo efeito de -c (o -c tem prioridade).
+  CHD_THREADS   mesmo efeito de -j.
+
+Sem nenhum caminho, o script usa a pasta atual, sem entrar em subpastas.
+Aceita varios caminhos de uma vez:
+
+  ./ps2-iso-para-chd.sh jogo1.iso jogo2.iso ~/jogos/ps2
+
+Extensoes sao comparadas sem diferenciar maiusculas de minusculas.
+Caminhos com espacos funcionam normalmente (sempre use aspas no terminal).
+
+
+7. COMPRESSAO: QUAL ESCOLHER
+----------------------------
+Codecs de DVD (PS2/PSP):
+
+  zstd    otimo equilibrio: comprime rapido, razao boa e descomprime
+          rapido. E o padrao dos scripts de PS2/PSP. Exige leitor
+          moderno (PCSX2 atual, PPSSPP 1.17.1+).
+  zlib    compatibilidade muito ampla, razao menor que zstd. Use em
+          emulador antigo ou quando zstd der problema.
+  lzma    melhor razao, mas lento para comprimir e descomprimir. Pode
+          causar engasgos em aparelho fraco.
+  default deixa o chdman escolher. Em createdvd, o padrao do chdman e
+          lzma,zlib,huff,flac.
+
+Codecs de CD (PS1):
+
+  default deixa o chdman escolher: cdlz,cdzl,cdfl. E o que o script usa.
+  cdlz    LZMA para audio CD + zlib para subcanal: melhor razao, mais
+          lento.
+  cdzl    zlib para dados de CD: mais rapido e mais compativel, arquivo
+          maior.
+  cdzs    zstd para CD: rapido, mas exige leitor mais novo.
+  cdfl    FLAC para o audio: bom para jogos com muita musica.
+
+Nao existe "melhor codec universal". A regra pratica:
+
+  - prioridade compatibilidade: -c zlib (DVD) ou -c default (CD);
+  - prioridade velocidade/espaco em emulador moderno: zstd;
+  - aparelho fraco: evite lzma; prefira zstd ou zlib.
+
+Para ver o que um CHD existente usa:
+
+  chdman info -i jogo.chd
+
+Para conferir a integridade:
+
+  chdman verify -i jogo.chd
+
+
+8. COMO OS SCRIPTS SE PROTEGEM
+------------------------------
+Fluxo de cada arquivo:
+
+  1. se ja existe jogo.chd e voce nao passou -f, pula;
+  2. cria jogo.chd.part na mesma pasta do original;
+  3. se o chdman falhar, apaga o .part e segue para o proximo;
+  4. roda chdman verify no .part;
+  5. se a verificacao falhar, apaga o .part e marca falha;
+  6. se passar, renomeia .part para .chd;
+  7. somente entao, se -d foi usado, apaga a origem.
+
+Consequencia importante: se voce converteu sem -d e depois rodar de novo
+com -d, o CHD existente e pulado e o original NAO e apagado. Para apagar
+essas origens depois, use -f -d (reconverte e apaga) ou apague a mao.
+
+Por que o .part: se o processo for interrompido (energia, Ctrl+C, disco
+cheio), o arquivo final .chd nao fica pela metade. O lixo fica com nome
+.part e a proxima execucao o remove antes de comecar.
+
+Por que verificar antes de apagar: o verify recalcula e compara os SHA1
+do conteudo. Sem isso, um erro de leitura/gravacao poderia destruir a
+unica copia boa do jogo.
+
+Espaco em disco: durante a conversao existem o original e o .part ao
+mesmo tempo. Tenha espaco livre pelo menos do tamanho do maior original.
+O .chd final costuma ficar menor, mas o pico de uso e durante o processo.
+
+IMPORTANTE: -d e irreversivel. Teste primeiro sem -d, abra alguns CHDs
+no emulador e so depois rode em lote com -d. Se quiser recuperar depois:
+
+  chdman extractdvd -i jogo.chd -o jogo.iso     (PS2/PSP)
+  chdman extractcd  -i jogo.chd -o jogo.cue     (PS1; gera .cue + .bin)
+
+O extractcd divide as trilhas novamente, mas nomes de arquivos e
+organizacao dos .bin podem nao ser identicos ao dump original.
+
+
+9. EXEMPLOS PRATICOS
+--------------------
+Converter uma pasta de PS2, sem apagar nada:
+
+  ./ps2-iso-para-chd.sh ~/jogos/ps2
+
+Converter tudo, inclusive subpastas, apagando os ISOs aprovados:
+
+  ./ps2-iso-para-chd.sh -r -d ~/jogos/ps2
+
+Converter uma pasta de PSP com compactacao mais compativel:
+
+  ./psp-iso-para-chd.sh -r -c zlib ~/jogos/psp
+
+Converter um jogo de PS1 especifico:
+
+  ./ps1-cd-para-chd.sh "~/jogos/ps1/Final Fantasy VII (Disc 1).cue"
+
+Cuidado: aspas dentro de aspas nao expandem ~. Prefira:
+
+  ./ps1-cd-para-chd.sh "$HOME/jogos/ps1/Final Fantasy VII (Disc 1).cue"
+
+Converter PS2 em CD:
+
+  ./ps2-iso-para-chd.sh --cd jogo-de-ps2-em-cd.iso
+
+
+10. PROBLEMAS COMUNS
+--------------------
+"chdman nao encontrado"
+  Instale: sudo pacman -S mame-tools
+
+"Data size N is not divisible by sector size 2048"
+  O arquivo nao e um ISO cru valido (tamanho nao e multiplo de 2048),
+  esta truncado ou e outro formato com extensao .iso. Confira o tamanho
+  e a origem do dump.
+
+"Pulando (ja existe)"
+  Ja existe um .chd com o mesmo nome. Use -f para refazer ou apague o
+  .chd antes.
+
+CHD criado, mas o emulador nao abre
+  - Confirme o comando correto: PS1 = createcd; PS2/PSP = createdvd.
+  - Rode chdman verify.
+  - Atualize o emulador (PPSSPP 1.17+ para PSP; PCSX2 atual para PS2;
+    DuckStation para PS1).
+  - PS2 em Android antigo (AetherSX2/NetherSX2) pode nao suportar
+    createdvd. Tente -c zlib; se ainda falhar, o limitante e o emulador.
+
+Jogo abre, mas com engasgos
+  - Evite lzma em aparelho fraco; use zstd ou zlib.
+  - Em PSP, confirme que o CHD foi criado com -hs 2048 (os scripts ja
+    fazem isso).
+  - Em PS2, teste um jogo pequeno antes de converter a biblioteca toda.
+
+Conversao muito lenta
+  - lzma e o codec mais lento. Use zstd.
+  - Nao limite threads sem necessidade; -j 0 nao e recomendado, omita -j
+    para usar o padrao do chdman.
+  - HD/SSD lento e o gargalo em ISOs grandes; nao ha milagre.
+
+Quero conferir tudo antes de apagar
+  - Rode sem -d e teste os CHDs.
+  - Verifique com: chdman verify -i jogo.chd
+  - Abra alguns jogos no emulador.
+  - Atencao: rodar de novo apenas com -d NAO apaga o original de um jogo
+    cujo .chd ja existe, porque o script pula o arquivo. Para apagar
+    essas origens depois, use -f -d (reconverte e apaga) ou apague a mao.
+  - Fluxo pratico: converta e teste sem -d; quando aprovar, rode com
+    -f -d. Ou use -d desde o inicio apenas em pastas com backup.
+
+
+11. CHECKLIST DE TESTE (FAZER ANTES DE USAR EM LOTE)
+----------------------------------------------------
+  [ ] chdman --help funciona.
+  [ ] Rodar um script em uma pasta pequena, sem -d.
+  [ ] Conferir que o .chd foi criado e que nao sobrou .part.
+  [ ] Rodar chdman verify -i no CHD gerado.
+  [ ] Rodar chdman info -i e conferir se o metadado e CD ou DVD conforme
+      a plataforma.
+  [ ] Abrir o jogo no emulador e jogar alguns minutos.
+  [ ] Testar um jogo com audio de CD (PS1) para confirmar as musicas.
+  [ ] So entao usar -d, de preferencia com backup da origem.
+  [ ] Guardar este manual junto dos scripts.
+
+
+12. REFERENCIA RAPIDA
+---------------------
+  chdman createdvd -c zstd -i jogo.iso -o jogo.chd
+  chdman createdvd -hs 2048 -c zstd -i jogo.iso -o jogo.chd   (PSP)
+  chdman createcd -i jogo.cue -o jogo.chd                    (PS1)
+  chdman verify -i jogo.chd
+  chdman info -i jogo.chd
+  chdman extractdvd -i jogo.chd -o jogo.iso
+  chdman extractcd -i jogo.chd -o jogo.cue
+
+Scripts:
+  ./ps1-cd-para-chd.sh
+  ./psp-iso-para-chd.sh
+  ./ps2-iso-para-chd.sh
+  ./manual-conversao-chd.txt
